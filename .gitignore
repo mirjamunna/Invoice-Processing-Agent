@@ -1,0 +1,58 @@
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environment variables and secrets
+.env
+.env.*
+*.key
+*.pem
+
+# IDE / Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Data and model files
+*.csv
+*.xlsx
+*.json
+!package.json
+*.pdf
+*.pkl
+*.h5
+*.pt
+*.bin
+data/
+models/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
