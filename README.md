@@ -8,6 +8,7 @@ An agentic AI system that automates invoice processing by combining specialized 
 - **Schema Enforcement** -- Validates extracted data against a fixed JSON schema to ensure consistency and correctness.
 - **Agentic Workflow** -- Employs an agent loop that can reason about ambiguous entries, request clarification, and self-correct extraction errors.
 - **Persistent Storage** -- Stores processed invoices indexed by invoice number with update-on-conflict semantics.
+- **REST API** -- FastAPI backend with endpoints for processing, listing, retrieving, and deleting invoices, ready for a Streamlit or any web frontend.
 
 ## Project Structure
 
@@ -17,13 +18,16 @@ Invoice-Processing-Agent/
 │   ├── __init__.py        # Package exports
 │   ├── framework.py       # Core framework (Agent, ActionContext, registry, LLM helpers)
 │   ├── tools.py           # Invoice extraction and storage tools
-│   └── agent.py           # Agent factory (create_invoice_agent)
+│   ├── agent.py           # Agent factory (create_invoice_agent)
+│   ├── models.py          # Pydantic request/response models
+│   └── api.py             # FastAPI backend API
 ├── tests/
 │   ├── __init__.py
 │   ├── test_framework.py  # Framework unit tests
 │   ├── test_tools.py      # Tool unit tests
-│   └── test_agent.py      # Agent creation tests
-├── main.py                # Entry point with sample invoice
+│   ├── test_agent.py      # Agent creation tests
+│   └── test_api.py        # API endpoint tests
+├── main.py                # CLI entry point with sample invoice
 ├── requirements.txt       # Python dependencies
 ├── .gitignore             # Git ignore rules
 └── README.md              # Project documentation
@@ -67,6 +71,8 @@ Invoice-Processing-Agent/
 
 ### Usage
 
+#### CLI
+
 **Run with the built-in sample invoice:**
 
 ```bash
@@ -79,7 +85,49 @@ python main.py
 python main.py path/to/invoice.txt
 ```
 
-**Use programmatically:**
+#### Backend API
+
+**Start the API server:**
+
+```bash
+uvicorn invoice_agent.api:app --reload --port 8000
+```
+
+Once running, interactive API docs are available at `http://localhost:8000/docs`.
+
+**API Endpoints:**
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Service health check |
+| `POST` | `/invoices/process` | Extract structured data from invoice text and store it |
+| `GET` | `/invoices` | List all stored invoices |
+| `GET` | `/invoices/{invoice_number}` | Retrieve a specific invoice |
+| `DELETE` | `/invoices/{invoice_number}` | Delete an invoice |
+| `POST` | `/agent/process` | Full agentic pipeline (LLM reasons and calls tools in a loop) |
+
+**Example -- process an invoice via the API:**
+
+```bash
+curl -X POST http://localhost:8000/invoices/process \
+  -H "Content-Type: application/json" \
+  -d '{"document_text": "Invoice #INV-2024-001\nDate: Jan 15, 2024\nTotal: $9,396.00"}'
+```
+
+**Example -- use from a Streamlit frontend:**
+
+```python
+import requests
+
+resp = requests.post(
+    "http://localhost:8000/invoices/process",
+    json={"document_text": invoice_text},
+)
+data = resp.json()
+print(data["invoice_data"])
+```
+
+#### Programmatic
 
 ```python
 from invoice_agent.agent import create_invoice_agent
@@ -118,6 +166,16 @@ The core framework provides:
 |---|---|---|
 | `extract_invoice_data` | `document_processing`, `invoices` | Sends invoice text to the LLM with a specialized prompt and fixed schema to extract structured data (invoice number, date, amounts, vendor, line items) |
 | `store_invoice` | `storage`, `invoices` | Persists extracted invoice data in the `ActionContext`, indexed by invoice number; supports insert and update |
+
+### Backend API (`invoice_agent/api.py`)
+
+A FastAPI application that exposes the invoice processing capabilities over HTTP. Key design points:
+
+- **Direct processing** (`POST /invoices/process`) -- calls the extraction and storage tools directly for fast, predictable responses.
+- **Agent processing** (`POST /agent/process`) -- runs the full agentic loop, allowing the LLM to reason over the invoice, self-correct, and call tools as needed.
+- **CRUD operations** -- list, get, and delete endpoints for managing stored invoices.
+- **CORS enabled** -- allows requests from any origin, making it straightforward to connect a Streamlit or other web frontend.
+- **Pydantic models** (`invoice_agent/models.py`) -- typed request/response schemas with validation.
 
 ## License
 
