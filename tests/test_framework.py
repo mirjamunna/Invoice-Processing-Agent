@@ -198,8 +198,8 @@ class TestAgentFunctionCallingActionLanguage:
         tool_def = formatted[0]
         assert tool_def["name"] == "greet"
         assert "Say hello." in tool_def["description"]
-        assert tool_def["input_schema"]["properties"]["name"]["type"] == "string"
-        assert "name" in tool_def["input_schema"]["required"]
+        assert tool_def["parameters"]["properties"]["name"]["type"] == "string"
+        assert "name" in tool_def["parameters"]["required"]
 
     def test_format_tools_skips_action_context(self):
         @register_tool()
@@ -209,7 +209,7 @@ class TestAgentFunctionCallingActionLanguage:
 
         lang = AgentFunctionCallingActionLanguage()
         formatted = lang.format_tools(get_registered_tools())
-        props = formatted[0]["input_schema"]["properties"]
+        props = formatted[0]["parameters"]["properties"]
 
         assert "action_context" not in props
         assert "value" in props
@@ -222,7 +222,7 @@ class TestAgentFunctionCallingActionLanguage:
 
         lang = AgentFunctionCallingActionLanguage()
         formatted = lang.format_tools(get_registered_tools())
-        props = formatted[0]["input_schema"]["properties"]
+        props = formatted[0]["parameters"]["properties"]
 
         assert props["s"]["type"] == "string"
         assert props["i"]["type"] == "integer"

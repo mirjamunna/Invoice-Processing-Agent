@@ -1,10 +1,10 @@
 # Invoice Processing Agent
 
-An agentic AI system that automates invoice processing by combining specialized data extraction with a structured storage mechanism. The agent leverages LLM capabilities to understand and parse invoice content while maintaining strict data consistency through a fixed schema.
+An agentic AI system that automates invoice processing by combining specialized data extraction with a structured storage mechanism. The agent leverages the Google Gemini API to understand and parse invoice content while maintaining strict data consistency through a fixed schema.
 
 ## Features
 
-- **Intelligent Extraction** -- Uses LLM-powered agents to extract key fields (vendor, date, line items, totals, tax) from invoices in various formats.
+- **Intelligent Extraction** -- Uses Gemini-powered agents to extract key fields (vendor, date, line items, totals, tax) from invoices in various formats.
 - **Schema Enforcement** -- Validates extracted data against a fixed JSON schema to ensure consistency and correctness.
 - **Agentic Workflow** -- Employs an agent loop that can reason about ambiguous entries, request clarification, and self-correct extraction errors.
 - **Persistent Storage** -- Stores processed invoices indexed by invoice number with update-on-conflict semantics.
@@ -34,7 +34,7 @@ Invoice-Processing-Agent/
 ### Prerequisites
 
 - Python 3.11+
-- An [Anthropic API key](https://console.anthropic.com/)
+- A [Google Gemini API key](https://aistudio.google.com/apikey)
 
 ### Setup
 
@@ -59,10 +59,10 @@ Invoice-Processing-Agent/
    pip install -r requirements.txt
    ```
 
-4. **Set your Anthropic API key:**
+4. **Set your Google API key:**
 
    ```bash
-   export ANTHROPIC_API_KEY="your-api-key-here"
+   export GOOGLE_API_KEY="your-api-key-here"
    ```
 
 ### Usage
@@ -106,11 +106,11 @@ The core framework provides:
 | `ActionContext` | Key-value store shared across tool calls within an agent session |
 | `@register_tool` | Decorator that registers functions as agent-callable tools |
 | `PythonActionRegistry` | Collects registered tools and supports tag-based lookup |
-| `prompt_llm_for_json` | Calls the Anthropic API with tool-use to extract structured JSON matching a schema |
-| `generate_response` | Thin wrapper around the Anthropic Messages API |
+| `prompt_llm_for_json` | Calls the Gemini API with function calling to extract structured JSON matching a schema |
+| `generate_response` | Thin wrapper around the Gemini `generateContent` API |
 | `Agent` | Orchestrates an agentic loop: prompt the LLM, execute tool calls, repeat until done |
 | `Goal` | Named objective that shapes the agent's system prompt |
-| `AgentFunctionCallingActionLanguage` | Converts Python function signatures into Anthropic tool definitions |
+| `AgentFunctionCallingActionLanguage` | Converts Python function signatures into Gemini tool definitions |
 
 ### Tools (`invoice_agent/tools.py`)
 

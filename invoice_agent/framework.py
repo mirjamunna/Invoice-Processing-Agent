@@ -6,7 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-import anthropic
+from google import genai
+from google.genai import types
 
 
 class ActionContext:
@@ -71,75 +72,96 @@ def prompt_llm_for_json(
     action_context: ActionContext,
     schema: dict,
     prompt: str,
-    model: str = "claude-sonnet-4-20250514",
+    model: str = "gemini-2.0-flash",
 ) -> dict:
     """Prompt an LLM to extract structured JSON data according to a schema.
 
-    Uses Anthropic's tool use feature to guarantee the response conforms
+    Uses Gemini's function calling feature to guarantee the response conforms
     to the provided JSON schema.
 
     Args:
         action_context: The current action context.
         schema: A JSON Schema describing the expected output structure.
         prompt: The prompt to send to the LLM.
-        model: The Anthropic model to use.
+        model: The Gemini model to use.
 
     Returns:
         A dictionary matching the provided schema.
     """
-    client = anthropic.Anthropic()
+    client = genai.Client()
 
-    tool_definition = {
-        "name": "extract_data",
-        "description": "Extract structured data from the provided content",
-        "input_schema": schema,
-    }
-
-    response = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        tools=[tool_definition],
-        tool_choice={"type": "tool", "name": "extract_data"},
-        messages=[{"role": "user", "content": prompt}],
+    tool = types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="extract_data",
+                description="Extract structured data from the provided content",
+                parameters=schema,
+            )
+        ]
     )
 
-    for block in response.content:
-        if block.type == "tool_use":
-            return block.input
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            tools=[tool],
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode="ANY",
+                )
+            ),
+        ),
+    )
+
+    for part in response.candidates[0].content.parts:
+        if part.function_call:
+            return dict(part.function_call.args)
 
     raise ValueError("LLM did not return structured data")
 
 
 def generate_response(
-    messages: list[dict],
+    messages: list,
     tools: Optional[list[dict]] = None,
     system: Optional[str] = None,
-    model: str = "claude-sonnet-4-20250514",
-) -> anthropic.types.Message:
-    """Generate a response from the Anthropic LLM.
+    model: str = "gemini-2.0-flash",
+):
+    """Generate a response from the Gemini LLM.
 
     Args:
-        messages: The conversation messages.
+        messages: The conversation messages as a list of Gemini Content objects.
         tools: Optional tool definitions for function calling.
         system: Optional system prompt.
-        model: The Anthropic model to use.
+        model: The Gemini model to use.
 
     Returns:
-        The Anthropic API Message response.
+        The Gemini API GenerateContentResponse.
     """
-    client = anthropic.Anthropic()
+    client = genai.Client()
 
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "max_tokens": 4096,
-        "messages": messages,
-    }
-    if tools:
-        kwargs["tools"] = tools
+    config_kwargs: dict[str, Any] = {}
     if system:
-        kwargs["system"] = system
+        config_kwargs["system_instruction"] = system
+    if tools:
+        gemini_tools = [
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(
+                        name=t["name"],
+                        description=t["description"],
+                        parameters=t["parameters"],
+                    )
+                    for t in tools
+                ]
+            )
+        ]
+        config_kwargs["tools"] = gemini_tools
 
-    return client.messages.create(**kwargs)
+    return client.models.generate_content(
+        model=model,
+        contents=messages,
+        config=types.GenerateContentConfig(**config_kwargs) if config_kwargs else None,
+    )
 
 
 @dataclass
@@ -151,16 +173,16 @@ class Goal:
 
 
 class AgentFunctionCallingActionLanguage:
-    """Translates registered tools into the Anthropic function-calling format."""
+    """Translates registered tools into the Gemini function-calling format."""
 
     def format_tools(self, tools: dict[str, dict]) -> list[dict]:
-        """Convert registered tool info dicts into Anthropic tool definitions.
+        """Convert registered tool info dicts into Gemini tool definitions.
 
         Args:
             tools: A mapping of tool name to tool info dict.
 
         Returns:
-            A list of tool definitions suitable for the Anthropic API.
+            A list of tool definitions suitable for the Gemini API.
         """
         formatted = []
         for name, info in tools.items():
@@ -189,7 +211,7 @@ class AgentFunctionCallingActionLanguage:
                 {
                     "name": name,
                     "description": info["doc"],
-                    "input_schema": {
+                    "parameters": {
                         "type": "object",
                         "properties": properties,
                         "required": required,
@@ -255,7 +277,7 @@ class Agent:
         self.action_registry = action_registry
         self._generate_response = generate_response
         self.environment = environment
-        self._messages: list[dict] = []
+        self._messages: list = []
 
     def _build_system_prompt(self) -> str:
         """Build a system prompt from the agent's goals."""
@@ -280,7 +302,9 @@ class Agent:
         formatted_tools = self.agent_language.format_tools(tools)
         system_prompt = self._build_system_prompt()
 
-        self._messages.append({"role": "user", "content": user_input})
+        self._messages.append(
+            types.Content(role="user", parts=[types.Part(text=user_input)])
+        )
 
         max_iterations = 10
         for _ in range(max_iterations):
@@ -290,55 +314,66 @@ class Agent:
                 system=system_prompt,
             )
 
-            assistant_content = response.content
-            self._messages.append({"role": "assistant", "content": assistant_content})
+            response_content = response.candidates[0].content
+            self._messages.append(response_content)
 
-            tool_uses = [b for b in assistant_content if b.type == "tool_use"]
+            function_calls = [
+                p for p in response_content.parts if p.function_call
+            ]
 
-            if not tool_uses:
-                text_parts = [b.text for b in assistant_content if b.type == "text"]
+            if not function_calls:
+                text_parts = [
+                    p.text for p in response_content.parts if p.text
+                ]
                 return "\n".join(text_parts)
 
-            tool_results = []
-            for tool_use in tool_uses:
-                tool_info = tools.get(tool_use.name)
+            function_responses = []
+            for fc_part in function_calls:
+                fc = fc_part.function_call
+                tool_info = tools.get(fc.name)
                 if tool_info:
                     func = tool_info["function"]
-                    kwargs = dict(tool_use.input)
+                    kwargs = dict(fc.args)
                     sig = inspect.signature(func)
                     if "action_context" in sig.parameters:
                         kwargs["action_context"] = self.environment.context
 
                     try:
                         result = func(**kwargs)
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_use.id,
-                                "content": json.dumps(result)
-                                if isinstance(result, (dict, list))
-                                else str(result),
-                            }
+                        result_data = (
+                            result
+                            if isinstance(result, dict)
+                            else {"result": json.dumps(result) if isinstance(result, list) else str(result)}
+                        )
+                        function_responses.append(
+                            types.Part(
+                                function_response=types.FunctionResponse(
+                                    name=fc.name,
+                                    response=result_data,
+                                )
+                            )
                         )
                     except Exception as e:
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_use.id,
-                                "content": f"Error: {e!s}",
-                                "is_error": True,
-                            }
+                        function_responses.append(
+                            types.Part(
+                                function_response=types.FunctionResponse(
+                                    name=fc.name,
+                                    response={"error": str(e)},
+                                )
+                            )
                         )
                 else:
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tool_use.id,
-                            "content": f"Error: Unknown tool {tool_use.name}",
-                            "is_error": True,
-                        }
+                    function_responses.append(
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name=fc.name,
+                                response={"error": f"Unknown tool {fc.name}"},
+                            )
+                        )
                     )
 
-            self._messages.append({"role": "user", "content": tool_results})
+            self._messages.append(
+                types.Content(role="user", parts=function_responses)
+            )
 
         return "Maximum iterations reached without a final response."
